@@ -1,10 +1,6 @@
-#!/bin/bash
-export CUDA_VISIBLE_DEVICES=0
-
-python train_intents.py \
-  --bert_model bert-base-cased \
-  --load_model_dir '../pre_trained_models_base_cased/' \
-  --history_model_file 'output_base/2019-09-24_12_54_24_pytorch_model.bin' \
+python -m torch.distributed.launch --nproc_per_node=4 train_intents.py \
+  --bert_model 'pre_trained_models_base_cased/' \
+  --load_model_dir 'pre_trained_models_base_cased/' \
   --do_eval \
   --data_dir '/diskb/houbw/dstc8-schema-guided-dialogue' \
   --train_batch_size 32 \
@@ -12,8 +8,9 @@ python train_intents.py \
   --warmup_proportion 0.1 \
   --num_train_epochs 1 \
   --max_seq_length 196 \
+  --fp16 \
   --output_dir output_base/ \
-  --gradient_accumulation_steps 1 #> log_intent_base/log_0p9sampleAllDev_onTest 2>&1 & #> log_intent_base/log_bsz32_warm0p1_epoch3_maxUttrLen64_withSYSTurn_MixedSlotDespTrue_lastIntentTag_frameChangeTag_0p99SampleAllDev.txt 2>&1 &
+  --gradient_accumulation_steps 1 > log_intent_base/baseline_debug.txt 2>&1
 
 
 # python train_cross_copy.py \

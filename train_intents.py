@@ -15,35 +15,36 @@
 # limitations under the License.
 """BERT finetuning runner."""
 
-import logging
-import os
 import argparse
-import random
-from tqdm import tqdm, trange
-import csv
-import pickle as pkl
-import socket
-import math
 import copy
+import csv
+import logging
+import math
+import os
+
+import pickle as pkl
+import random
+import socket
 from datetime import datetime
 
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.nn.init as init
+from nltk.corpus import stopwords
 from torch.autograd import Variable
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
+from torch.utils.data import (DataLoader, RandomSampler, SequentialSampler,
+                              TensorDataset)
 from torch.utils.data.distributed import DistributedSampler
-import torch.nn.functional as F
-
-from pytorch_pretrained_bert.tokenization import BertTokenizer
-from pytorch_pretrained_bert.modeling import BertForIntent
-from pytorch_pretrained_bert.optimization import BertAdam
-from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
-from nltk.corpus import stopwords
+from tqdm import tqdm, trange
 
 from data_utils_test import Corpus
+from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
+from pytorch_pretrained_bert.modeling import BertForIntent
+from pytorch_pretrained_bert.optimization import BertAdam
+from pytorch_pretrained_bert.tokenization import BertTokenizer
 
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
@@ -65,6 +66,7 @@ def get_host_ip():
 
 
 print('Linux host name:', socket.gethostname(), get_host_ip())
+# TODO CUDA devices can't be printed.
 # print('use gpu', os.environ['CUDA_VISIBLE_DEVICES'])
 
 
@@ -78,8 +80,8 @@ class Bert_v1(nn.Module):
         self.device = device
 
         # self.bert = BertForSequenceClassification.from_pretrained(args.bert_model, cache_dir=None)
-        self.bert = BertForIntent.from_pretrained(args.bert_model, \
-                  cache_dir=args.load_model_dir)
+        self.bert = BertForIntent.from_pretrained(
+            args.bert_model, cache_dir=args.load_model_dir)
 
     def forward(self, input_ids, segment_ids, input_mask, intent_mask,
                 special_token_ids):
@@ -600,7 +602,8 @@ def train(train_features, epoch, global_step):
             tmp_loss = 0
 
         if args.fp16:
-            optimizer.backward(loss)
+            with amp.scale_loss(loss, optimizer) as loss:
+                loss.backward()
         else:
             loss.backward()
         if (step + 1) % args.gradient_accumulation_steps == 0:
@@ -871,9 +874,9 @@ os.makedirs(args.output_dir, exist_ok=True)
 # tokenizer = BertTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)
 
 #---------------- load data ------------------------
-corpus = Corpus(args, max_uttr_len=96)
+# corpus = Corpus(args, max_uttr_len=96)
 # pkl.dump(corpus, open('corpus.pkl', 'wb'))
-# corpus = pkl.load(open('corpus_sample0p99Dev.pkl', 'rb'))
+corpus = pkl.load(open('corpus.pkl', 'rb'))
 corpus.max_uttr_len = 96
 train_data, dev_data, test_data = corpus.get_intent_set()
 corpus.check_length(train_data, maxlen=corpus.max_uttr_len)
@@ -881,7 +884,7 @@ print('max_numIntents:', corpus.max_numIntents)
 print('#train:', len(train_data))
 print('#dev:', len(dev_data))
 print('#test:', len(test_data))
-
+print("Converting examples to features.(Long Time)")
 train_features = convert_examples_to_features(copy.deepcopy(train_data), corpus.tokenizer_bert, \
    corpus.max_numVals_of_slot, args.max_seq_length, True, corpus.max_uttr_len)
 
@@ -898,8 +901,8 @@ num_train_steps = int(len(train_features) / args.train_batch_size / \
 #-------------------------------------------------------------------------------
 model = Bert_v1(768, 300, n_layer=1, dropout=0.1, device=device)
 print(model)
-if args.fp16:
-    model.half()
+# if args.fp16:
+#     model.half()
 
 if args.history_model_file is not None:
     model_state_dict = torch.load(args.history_model_file)
@@ -917,6 +920,7 @@ if args.local_rank != -1:
         )
 
     model = DDP(model)
+# TODO: BUG one gpu training is not possible.
 elif n_gpu > 1:
     model = torch.nn.DataParallel(model)
 
@@ -946,7 +950,7 @@ if args.local_rank != -1:
     t_total = t_total // torch.distributed.get_world_size()
 if args.fp16:
     try:
-        from apex.optimizers import FP16_Optimizer
+        from apex.fp16_utils import FP16_Optimizer
         from apex.optimizers import FusedAdam
     except ImportError:
         raise ImportError(
@@ -955,18 +959,22 @@ if args.fp16:
 
     optimizer = FusedAdam(optimizer_grouped_parameters,
                           lr=args.learning_rate,
-                          bias_correction=False,
-                          max_grad_norm=1.0)
-    if args.loss_scale == 0:
-        optimizer = FP16_Optimizer(optimizer, dynamic_loss_scale=True)
-    else:
-        optimizer = FP16_Optimizer(optimizer,
-                                   static_loss_scale=args.loss_scale)
+                          bias_correction=False)
+    # if args.loss_scale == 0:
+    #     optimizer = FP16_Optimizer(optimizer, dynamic_loss_scale=True)
+    # else:
+    #     optimizer = FP16_Optimizer(optimizer,
+    #                                static_loss_scale=args.loss_scale)
 else:
     optimizer = BertAdam(optimizer_grouped_parameters,
                          lr=args.learning_rate,
                          warmup=args.warmup_proportion,
                          t_total=t_total)
+if args.fp16:
+    from apex import amp
+    model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
+
+
 for epoch in range(int(args.num_train_epochs)):
 
     train_features = convert_examples_to_features(copy.deepcopy(train_data), corpus.tokenizer_bert, \
