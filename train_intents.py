@@ -55,6 +55,17 @@ logger = logging.getLogger(__name__)
 avg_len = []
 
 
+def timer(func):
+
+    def wrapper(*args, **kwargs):
+        logger.info(f"START: {func.__name__}")
+        res = func(*args, **kwargs)
+        logger.info(f"END: {func.__name__}")
+        return res
+
+    return wrapper
+
+
 def get_host_ip():
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -67,10 +78,11 @@ def get_host_ip():
 
 print('Linux host name:', socket.gethostname(), get_host_ip())
 # TODO CUDA devices can't be printed.
-# print('use gpu', os.environ['CUDA_VISIBLE_DEVICES'])
+print('use gpu', os.environ['CUDA_VISIBLE_DEVICES'])
 
 
 class Bert_v1(nn.Module):
+
     def __init__(self, ninput, nhidden, n_layer=1, dropout=0, device=None):
         super(Bert_v1, self).__init__()
         self.nhidden = nhidden
@@ -81,7 +93,7 @@ class Bert_v1(nn.Module):
 
         # self.bert = BertForSequenceClassification.from_pretrained(args.bert_model, cache_dir=None)
         self.bert = BertForIntent.from_pretrained(
-            args.bert_model, cache_dir=args.load_model_dir)
+            args.load_model_dir, cache_dir=args.load_model_dir)
 
     def forward(self, input_ids, segment_ids, input_mask, intent_mask,
                 special_token_ids):
@@ -99,6 +111,7 @@ class Bert_v1(nn.Module):
 
 
 class InputFeatures(object):
+
     def __init__(
         self,
         example_id,
@@ -131,12 +144,21 @@ class InputFeatures(object):
         self.last_intent_label = last_intent_label
 
 
-def convert_examples_to_features(examples, tokenizer, max_numIntents, max_seq_length, \
- is_training, max_uttr_len=64, eval=False):
+@timer
+def convert_examples_to_features(examples,
+                                 tokenizer,
+                                 max_numIntents,
+                                 max_seq_length,
+                                 is_training,
+                                 max_uttr_len=64,
+                                 eval=False):
     """Loads a data file into a list of `InputBatch`s."""
 
     features = []
     for example_index, example in enumerate(examples):
+
+        # logger.info(f"example index: {example_index}")
+
         seq_features = []
 
         dialogue_id = example[0]
@@ -267,8 +289,15 @@ def convert_examples_to_features(examples, tokenizer, max_numIntents, max_seq_le
 
     return features
 
-def convert_examples_to_features_infer(examples, tokenizer, max_numIntents, max_seq_length, \
- is_training, max_uttr_len=64, eval=False):
+
+@timer
+def convert_examples_to_features_infer(examples,
+                                       tokenizer,
+                                       max_numIntents,
+                                       max_seq_length,
+                                       is_training,
+                                       max_uttr_len=64,
+                                       eval=False):
     """Loads a data file into a list of `InputBatch`s."""
 
     features = []
@@ -550,7 +579,7 @@ def train(train_features, epoch, global_step):
 
     nb_tr_steps = 0
 
-    print_steps = 200
+    print_steps = 20
     tmp_accuracy = 0
     tmp_examples = 0
 
@@ -650,10 +679,12 @@ def evaluate(eval_features):
 
     eval_loss = 0
 
-    for sample_idx, batch in enumerate(batchify(eval_features, \
-         batch_size=args.train_batch_size, shuffle=False)):
+    for sample_idx, batch in enumerate(
+            batchify(eval_features,
+                     batch_size=args.train_batch_size,
+                     shuffle=False)):
         batch[:6] = tuple(t.to(device) for t in batch[:6])
-        input_ids, input_mask, segment_ids, intent_mask, special_token_ids, intent_label, \
+        input_ids, input_mask, segment_ids, intent_mask, special_token_ids, intent_label,
         dialogue_id, api_id, turn_id, utterance, uttr_tokens, intents, last_intent_label = batch
 
         bsz = input_ids.size(0)
@@ -828,7 +859,7 @@ def arg_parser():
     parser.add_argument("--cross_folds", default=10, type=int, help="")
 
     args, unknown = parser.parse_known_args()
-    print(unknown)
+    print("ARGUMENTS:", args)
     return args
 
 
@@ -884,25 +915,36 @@ print('max_numIntents:', corpus.max_numIntents)
 print('#train:', len(train_data))
 print('#dev:', len(dev_data))
 print('#test:', len(test_data))
-print("Converting examples to features.(Long Time)")
-train_features = convert_examples_to_features(copy.deepcopy(train_data), corpus.tokenizer_bert, \
-   corpus.max_numVals_of_slot, args.max_seq_length, True, corpus.max_uttr_len)
 
-dev_features = convert_examples_to_features_infer(copy.deepcopy(dev_data), corpus.tokenizer_bert, \
-   corpus.max_numVals_of_slot, args.max_seq_length, True, corpus.max_uttr_len, eval=True)
+logger.info("Converting examples to features.(Long Time)")
+train_features = convert_examples_to_features(copy.deepcopy(train_data),
+                                              corpus.tokenizer_bert,
+                                              corpus.max_numVals_of_slot,
+                                              args.max_seq_length, True,
+                                              corpus.max_uttr_len)
 
-test_features = convert_examples_to_features_infer(copy.deepcopy(test_data), corpus.tokenizer_bert, \
-   corpus.max_numVals_of_slot, args.max_seq_length, True, corpus.max_uttr_len, eval=True)
+dev_features = convert_examples_to_features_infer(copy.deepcopy(dev_data),
+                                                  corpus.tokenizer_bert,
+                                                  corpus.max_numVals_of_slot,
+                                                  args.max_seq_length,
+                                                  True,
+                                                  corpus.max_uttr_len,
+                                                  eval=True)
 
+test_features = convert_examples_to_features_infer(copy.deepcopy(test_data),
+                                                   corpus.tokenizer_bert,
+                                                   corpus.max_numVals_of_slot,
+                                                   args.max_seq_length,
+                                                   True,
+                                                   corpus.max_uttr_len,
+                                                   eval=True)
 
-num_train_steps = int(len(train_features) / args.train_batch_size / \
-      args.gradient_accumulation_steps * args.num_train_epochs)
+num_train_steps = int(
+    len(train_features) / args.train_batch_size /
+    args.gradient_accumulation_steps * args.num_train_epochs)
 
 #-------------------------------------------------------------------------------
 model = Bert_v1(768, 300, n_layer=1, dropout=0.1, device=device)
-print(model)
-# if args.fp16:
-#     model.half()
 
 if args.history_model_file is not None:
     model_state_dict = torch.load(args.history_model_file)
@@ -911,18 +953,6 @@ if args.history_model_file is not None:
           args.history_model_file)
 
 model.to(device)
-if args.local_rank != -1:
-    try:
-        from apex.parallel import DistributedDataParallel as DDP
-    except ImportError:
-        raise ImportError(
-            "Please install apex from https://www.github.com/nvidia/apex to use distributed and fp16 training."
-        )
-
-    model = DDP(model)
-# TODO: BUG one gpu training is not possible.
-elif n_gpu > 1:
-    model = torch.nn.DataParallel(model)
 
 param_optimizer = list(model.named_parameters())
 
@@ -974,6 +1004,17 @@ if args.fp16:
     from apex import amp
     model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
 
+if args.local_rank != -1:
+    try:
+        from apex.parallel import DistributedDataParallel as DDP
+    except ImportError:
+        raise ImportError(
+            "Please install apex from https://www.github.com/nvidia/apex to use distributed and fp16 training."
+        )
+
+    model = DDP(model)
+elif n_gpu > 1:
+    model = torch.nn.DataParallel(model)
 
 for epoch in range(int(args.num_train_epochs)):
 

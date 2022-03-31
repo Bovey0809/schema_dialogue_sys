@@ -462,7 +462,7 @@ def train(train_features, epoch, global_step):
 
 	nb_tr_steps = 0
 
-	print_steps = 200
+	print_steps = 20
 	tmp_accuracy = np.zeros(2)
 	tmp_examples = np.zeros(2)
 
@@ -775,10 +775,10 @@ os.makedirs(args.output_dir, exist_ok=True)
 # tokenizer = BertTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)
 
 #---------------- load data ------------------------
-corpus = Corpus(args, max_uttr_len=96)
+# corpus = Corpus(args, max_uttr_len=96)
 # pkl.dump(corpus, open('corpus.pkl', 'wb'))
 # exit()
-# corpus = pkl.load(open('corpus_sample0p99Dev.pkl', 'rb'))
+corpus = pkl.load(open('corpus.pkl', 'rb'))
 corpus.max_uttr_len = 96
 train_data, dev_data, test_data = corpus.get_slotCross_set()
 

@@ -678,7 +678,7 @@ os.makedirs(args.output_dir, exist_ok=True)
 # corpus = Corpus(args, max_uttr_len=72)
 
 # pkl.dump(corpus, open('corpus_expand.pkl', 'wb'))
-corpus = pkl.load(open('corpus_sample0p9Dev.pkl', 'rb'))
+corpus = pkl.load(open('corpus.pkl', 'rb'))
 corpus.max_uttr_len = 72
 train_data, dev_data, test_data = corpus.get_slotNotCare_set()
 corpus.check_length(train_data, maxlen = corpus.max_uttr_len, idx=-3)

@@ -1690,6 +1690,7 @@ class Corpus(object):
         return merge
 
     def merge_filt(self, data_out, data):
+        #TODO what's the function doing?
         apis = {}
         for api_service in data_out:
             apis[api_service] = 1
