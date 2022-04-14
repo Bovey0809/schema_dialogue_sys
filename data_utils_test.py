@@ -12,8 +12,12 @@ from pytorch_pretrained_bert.tokenization import BertTokenizer
 
 
 class Corpus(object):
-    def __init__(self, args, prepare_data_manner=None, data_path='../dstc8-schema-guided-dialogue/', \
-        max_uttr_len = 64):
+
+    def __init__(self,
+                 args,
+                 prepare_data_manner=None,
+                 data_path='../dstc8-schema-guided-dialogue/',
+                 max_uttr_len=64):
 
         self.data_path = data_path
         self.bert_model = args.bert_model
@@ -289,13 +293,17 @@ class Corpus(object):
         resolved['slots'] = {}
         self.max_numIntents = max(len(raw['intents']), self.max_numIntents)
         for item in raw['slots']:
-            item['possible_values_tokenized'] = [self.tokenizer_bert.tokenize(val) \
-              for val in item['possible_values']]
+            item['possible_values_tokenized'] = [
+                self.tokenizer_bert.tokenize(val)
+                for val in item['possible_values']
+            ]
             resolved['slots'][item['name']] = item
-            resolved['slots'][item['name']]['description_tokenized'] \
-             = self.tokenizer_bert.tokenize(resolved['slots'][item['name']]['description'])
-            resolved['slots'][item['name']]['description_tokenized_simple'] \
-             = self.tokenizer_bert.tokenize(item['name'].replace('_', ' '))
+            resolved['slots'][item['name']][
+                'description_tokenized'] = self.tokenizer_bert.tokenize(
+                    resolved['slots'][item['name']]['description'])
+            resolved['slots'][item['name']][
+                'description_tokenized_simple'] = self.tokenizer_bert.tokenize(
+                    item['name'].replace('_', ' '))
 
             numVals = len(item['possible_values'])
             self.max_numVals_of_slot = max(numVals, self.max_numVals_of_slot)
@@ -303,10 +311,12 @@ class Corpus(object):
         resolved['intents'] = {}
         for item in raw['intents']:
             resolved['intents'][item['name']] = item
-            resolved['intents'][item['name']]['description_tokenized'] \
-             = self.tokenizer_bert.tokenize(resolved['intents'][item['name']]['description'])
-            resolved['intents'][item['name']]['description_tokenized_simple'] \
-             = self.tokenizer_bert.tokenize(item['name'])
+            resolved['intents'][item['name']][
+                'description_tokenized'] = self.tokenizer_bert.tokenize(
+                    resolved['intents'][item['name']]['description'])
+            resolved['intents'][item['name']][
+                'description_tokenized_simple'] = self.tokenizer_bert.tokenize(
+                    item['name'])
 
         return resolved
 

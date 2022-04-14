@@ -77,8 +77,6 @@ def get_host_ip():
 
 
 print('Linux host name:', socket.gethostname(), get_host_ip())
-# TODO CUDA devices can't be printed.
-print('use gpu', os.environ['CUDA_VISIBLE_DEVICES'])
 
 
 class Bert_v1(nn.Module):
@@ -155,7 +153,8 @@ def convert_examples_to_features(examples,
     """Loads a data file into a list of `InputBatch`s."""
 
     features = []
-    for example_index, example in enumerate(examples):
+    for example_index, example in tqdm(enumerate(examples),
+                                       desc="Training features processing:"):
 
         # logger.info(f"example index: {example_index}")
 
@@ -190,8 +189,7 @@ def convert_examples_to_features(examples,
         tokens = ['[CLS]'] + uttr_tokens_padded + ['[SEP]'
                                                    ] + intent_desp + ['[SEP]']
 
-        segment_ids = [0] * (len(uttr_tokens_padded) +
-                             2) + [1] * (len(intent_desp) + 1)
+        segment_ids = [0] * (max_uttr_len + 2) + [1] * (len(intent_desp) + 1)
 
         input_ids = tokenizer.convert_tokens_to_ids(tokens)
 
@@ -199,12 +197,12 @@ def convert_examples_to_features(examples,
         intent_lens = [len(val) for val in example[6]]
         for i in range(len(example[6])):
             # mask_style_1
-            tmp_intent_mask = [0] * (len(uttr_tokens_padded) + 2 + \
+            tmp_intent_mask = [0] * (max_uttr_len + 2 + \
              sum(intent_lens[:i]) + i) + [1] * intent_lens[i]
             tmp_intent_mask += [0] * (max_seq_length - len(tmp_intent_mask))
             intent_mask.append(tmp_intent_mask)
 
-        special_token_ids = [0] * (len(uttr_tokens_padded) + 2)
+        special_token_ids = [0] * (max_uttr_len + 2)
         for i in range(len(example[6])):
             special_token_ids += [example[8][i]] * len(example[6][i]) + [0]
         special_token_ids += [0] * (max_seq_length - len(special_token_ids))
@@ -299,9 +297,12 @@ def convert_examples_to_features_infer(examples,
                                        max_uttr_len=64,
                                        eval=False):
     """Loads a data file into a list of `InputBatch`s."""
-
+    # TODO why is_training is True when eval and dev?
     features = []
-    for example_index, example in enumerate(examples):
+    if eval:
+        examples = examples[:100]
+    for example_index, example in tqdm(enumerate(examples),
+                                       desc="infer features processing"):
 
         dialogue_id = example[0]
         api_id = example[1]
@@ -335,22 +336,23 @@ def convert_examples_to_features_infer(examples,
                 '[SEP]'
             ] + intent_desp + ['[SEP]']
 
-            segment_ids = [0] * (len(uttr_tokens_padded) +
-                                 2) + [1] * (len(intent_desp) + 1)
+            segment_ids = [0] * (max_uttr_len + 2) + [1] * (len(intent_desp) +
+                                                            1)
 
             input_ids = tokenizer.convert_tokens_to_ids(tokens)
 
             intent_mask = []
             intent_lens = [len(val) for val in example[6]]
+
             for i in range(len(example[6])):
-                # mask_style_1
-                tmp_intent_mask = [0] * (len(uttr_tokens_padded) + 2 + \
-                 sum(intent_lens[:i]) + i) + [1] * intent_lens[i]
+                # mask_style_1 : CLS UTTR SEP INTENT SEP INTENT SEP ...
+                tmp_intent_mask = [0] * (max_uttr_len + 2 + sum(
+                    intent_lens[:i]) + i) + [1] * intent_lens[i]
                 tmp_intent_mask += [0
                                     ] * (max_seq_length - len(tmp_intent_mask))
                 intent_mask.append(tmp_intent_mask)
 
-            special_token_ids = [0] * (len(uttr_tokens_padded) + 2)
+            special_token_ids = [0] * (max_uttr_len + 2)
             for i in range(len(example[6])):
                 special_token_ids += [int(i == last_intent_label)] * len(
                     example[6][i]) + [0]
@@ -358,12 +360,12 @@ def convert_examples_to_features_infer(examples,
                                   ] * (max_seq_length - len(special_token_ids))
 
             # manner1
-            uttr_att_mask = [1] * (1 + len(uttr_tokens)) + [0] * (max_uttr_len - len(uttr_tokens)) + \
-               [1] * (2 + len(intent_desp))
+            uttr_att_mask = [1] * (1 + len(uttr_tokens)) + [0] * (
+                max_uttr_len - len(uttr_tokens)) + [1] * (2 + len(intent_desp))
             uttr_att_mask += [0] * (max_seq_length - len(uttr_att_mask))
 
             # manner2
-            # uttr_att_mask = [0] + [1] * (len(uttr_tokens)) + [0] * (max_uttr_len - len(uttr_tokens)) + \
+            # uttr_att_mask = [0] + [1] * (len(uttr_tokens)) + [0] * (max_uttr_len - len(uttr_tokens)) +
             # 			[1] * (2 + len(slot_tokens))
             # uttr_att_mask += [0] * (max_seq_length - len(uttr_att_mask))
 
@@ -380,8 +382,8 @@ def convert_examples_to_features_infer(examples,
 
             for i in range(len(example[6])):
                 # mask_style_1
-                tmp_val_att_mask = [1] * (2 + len(uttr_tokens)) + [0] * (max_uttr_len - \
-                      len(uttr_tokens))
+                tmp_val_att_mask = [1] * (2 + len(uttr_tokens)) + [0] * (
+                    max_uttr_len - len(uttr_tokens))
                 tmp_val_att_mask += [0] * (sum(intent_lens[:i]) + i)
                 tmp_val_att_mask += [1] * intent_lens[i]
                 tmp_val_att_mask += [0] * (max_seq_length -
@@ -531,8 +533,11 @@ def batchify(data, batch_size=16, shuffle=True):
         last_intent_label = all_last_intent_label[i * batch_size:(i + 1) *
                                                   batch_size]
 
-        yield [input_ids, input_mask, segment_ids, intent_mask, special_token_ids, intent_label, \
-           dialogue_id, api_id, turn_id, utterance, uttr_tokens, intents, last_intent_label]
+        yield [
+            input_ids, input_mask, segment_ids, intent_mask, special_token_ids,
+            intent_label, dialogue_id, api_id, turn_id, utterance, uttr_tokens,
+            intents, last_intent_label
+        ]
 
 
 def select_field(features, field):
@@ -653,6 +658,7 @@ def train(train_features, epoch, global_step):
     return tr_loss, tr_accuracy, global_step, nb_examples
 
 
+@timer
 def evaluate(eval_features):
 
     model.eval()
@@ -684,8 +690,7 @@ def evaluate(eval_features):
                      batch_size=args.train_batch_size,
                      shuffle=False)):
         batch[:6] = tuple(t.to(device) for t in batch[:6])
-        input_ids, input_mask, segment_ids, intent_mask, special_token_ids, intent_label,
-        dialogue_id, api_id, turn_id, utterance, uttr_tokens, intents, last_intent_label = batch
+        input_ids, input_mask, segment_ids, intent_mask, special_token_ids, intent_label, dialogue_id, api_id, turn_id, utterance, uttr_tokens, intents, last_intent_label = batch
 
         bsz = input_ids.size(0)
 
@@ -722,8 +727,9 @@ def evaluate(eval_features):
 
     eval_loss /= nb_tr_steps
 
-    total_results = (total_dialogue_id, total_api_id, total_turn_id, total_utterance, total_uttr_tokens, \
-        total_intents, total_last_intent_label, total_ground, total_preds)
+    total_results = (total_dialogue_id, total_api_id, total_turn_id,
+                     total_utterance, total_uttr_tokens, total_intents,
+                     total_last_intent_label, total_ground, total_preds)
 
     return eval_loss, tr_accuracy, nb_examples, total_results
 
@@ -863,203 +869,213 @@ def arg_parser():
     return args
 
 
-#-----------------------------main-------------------------------------------
-args = arg_parser()
+def num_steps(features):
+    num_steps = int(
+        len(features) / args.train_batch_size /
+        args.gradient_accumulation_steps * args.num_train_epochs)
+    return num_steps
 
-if args.local_rank == -1 or args.no_cuda:
-    device = torch.device(
-        "cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
-    n_gpu = torch.cuda.device_count()
-else:
-    torch.cuda.set_device(args.local_rank)
-    device = torch.device("cuda", args.local_rank)
-    n_gpu = 1
-    # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
-    torch.distributed.init_process_group(backend='nccl')
-logger.info(
-    "device: {} n_gpu: {}, distributed training: {}, 16-bits training: {}".
-    format(device, n_gpu, bool(args.local_rank != -1), args.fp16))
 
-if args.gradient_accumulation_steps < 1:
-    raise ValueError(
-        "Invalid gradient_accumulation_steps parameter: {}, should be >= 1".
-        format(args.gradient_accumulation_steps))
+def main():
+    #-----------------------------main-------------------------------------------
+    args = arg_parser()
 
-args.train_batch_size = int(args.train_batch_size /
-                            args.gradient_accumulation_steps)
+    if args.local_rank == -1 or args.no_cuda:
+        device = torch.device("cuda" if torch.cuda.is_available()
+                              and not args.no_cuda else "cpu")
+        n_gpu = torch.cuda.device_count()
+    else:
+        torch.cuda.set_device(args.local_rank)
+        device = torch.device("cuda", args.local_rank)
+        n_gpu = 1
+        # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
+        torch.distributed.init_process_group(backend='nccl')
+    logger.info(
+        "device: {} n_gpu: {}, distributed training: {}, 16-bits training: {}".
+        format(device, n_gpu, bool(args.local_rank != -1), args.fp16))
 
-random.seed(args.seed)
-np.random.seed(args.seed)
-torch.manual_seed(args.seed)
-if n_gpu > 0:
-    torch.cuda.manual_seed_all(args.seed)
+    if args.gradient_accumulation_steps < 1:
+        raise ValueError(
+            "Invalid gradient_accumulation_steps parameter: {}, should be >= 1"
+            .format(args.gradient_accumulation_steps))
 
-if not args.do_train and not args.do_eval:
-    raise ValueError("At least one of `do_train` or `do_eval` must be True.")
-'''
-if os.path.exists(args.output_dir) and os.listdir(args.output_dir):
-	raise ValueError("Output directory ({}) already exists and is not empty.".format(args.output_dir))
-'''
-os.makedirs(args.output_dir, exist_ok=True)
+    args.train_batch_size = int(args.train_batch_size /
+                                args.gradient_accumulation_steps)
 
-# tokenizer = BertTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if n_gpu > 0:
+        torch.cuda.manual_seed_all(args.seed)
 
-#---------------- load data ------------------------
-# corpus = Corpus(args, max_uttr_len=96)
-# pkl.dump(corpus, open('corpus.pkl', 'wb'))
-corpus = pkl.load(open('corpus.pkl', 'rb'))
-corpus.max_uttr_len = 96
-train_data, dev_data, test_data = corpus.get_intent_set()
-corpus.check_length(train_data, maxlen=corpus.max_uttr_len)
-print('max_numIntents:', corpus.max_numIntents)
-print('#train:', len(train_data))
-print('#dev:', len(dev_data))
-print('#test:', len(test_data))
+    if not args.do_train and not args.do_eval:
+        raise ValueError(
+            "At least one of `do_train` or `do_eval` must be True.")
+    '''
+    if os.path.exists(args.output_dir) and os.listdir(args.output_dir):
+        raise ValueError("Output directory ({}) already exists and is not empty.".format(args.output_dir))
+    '''
+    os.makedirs(args.output_dir, exist_ok=True)
 
-logger.info("Converting examples to features.(Long Time)")
-train_features = convert_examples_to_features(copy.deepcopy(train_data),
-                                              corpus.tokenizer_bert,
-                                              corpus.max_numVals_of_slot,
-                                              args.max_seq_length, True,
-                                              corpus.max_uttr_len)
+    # tokenizer = BertTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)
 
-dev_features = convert_examples_to_features_infer(copy.deepcopy(dev_data),
-                                                  corpus.tokenizer_bert,
-                                                  corpus.max_numVals_of_slot,
-                                                  args.max_seq_length,
-                                                  True,
-                                                  corpus.max_uttr_len,
-                                                  eval=True)
+    #---------------- load data ------------------------
+    corpus = Corpus(args, max_uttr_len=96)
+    # pkl.dump(corpus, open('corpus.pkl', 'wb'))
+    # corpus = pkl.load(open('corpus.pkl', 'rb'))
+    corpus.max_uttr_len = 96
+    train_data, dev_data, test_data = corpus.get_intent_set()
+    corpus.check_length(train_data, maxlen=corpus.max_uttr_len)
+    print('max_numIntents:', corpus.max_numIntents)
+    print('#train:', len(train_data))
+    print('#dev:', len(dev_data))
+    print('#test:', len(test_data))
 
-test_features = convert_examples_to_features_infer(copy.deepcopy(test_data),
-                                                   corpus.tokenizer_bert,
-                                                   corpus.max_numVals_of_slot,
-                                                   args.max_seq_length,
-                                                   True,
-                                                   corpus.max_uttr_len,
-                                                   eval=True)
-
-num_train_steps = int(
-    len(train_features) / args.train_batch_size /
-    args.gradient_accumulation_steps * args.num_train_epochs)
-
-#-------------------------------------------------------------------------------
-model = Bert_v1(768, 300, n_layer=1, dropout=0.1, device=device)
-
-if args.history_model_file is not None:
-    model_state_dict = torch.load(args.history_model_file)
-    model.load_state_dict(model_state_dict)
-    print('#Finished loading history model file from %s !' %
-          args.history_model_file)
-
-model.to(device)
-
-param_optimizer = list(model.named_parameters())
-
-# hack to remove pooler, which is not used
-# thus it produce None grad that break apex
-param_optimizer = [n for n in param_optimizer if 'pooler' not in n[0]]
-
-no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
-optimizer_grouped_parameters = [{
-    'params':
-    [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)],
-    'weight_decay':
-    0.01
-}, {
-    'params':
-    [p for n, p in param_optimizer if any(nd in n for nd in no_decay)],
-    'weight_decay':
-    0.0
-}]
-
-t_total = num_train_steps
-global_step = 0
-
-if args.local_rank != -1:
-    t_total = t_total // torch.distributed.get_world_size()
-if args.fp16:
-    try:
-        from apex.fp16_utils import FP16_Optimizer
-        from apex.optimizers import FusedAdam
-    except ImportError:
-        raise ImportError(
-            "Please install apex from https://www.github.com/nvidia/apex to use distributed and fp16 training."
-        )
-
-    optimizer = FusedAdam(optimizer_grouped_parameters,
-                          lr=args.learning_rate,
-                          bias_correction=False)
-    # if args.loss_scale == 0:
-    #     optimizer = FP16_Optimizer(optimizer, dynamic_loss_scale=True)
-    # else:
-    #     optimizer = FP16_Optimizer(optimizer,
-    #                                static_loss_scale=args.loss_scale)
-else:
-    optimizer = BertAdam(optimizer_grouped_parameters,
-                         lr=args.learning_rate,
-                         warmup=args.warmup_proportion,
-                         t_total=t_total)
-if args.fp16:
-    from apex import amp
-    model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
-
-if args.local_rank != -1:
-    try:
-        from apex.parallel import DistributedDataParallel as DDP
-    except ImportError:
-        raise ImportError(
-            "Please install apex from https://www.github.com/nvidia/apex to use distributed and fp16 training."
-        )
-
-    model = DDP(model)
-elif n_gpu > 1:
-    model = torch.nn.DataParallel(model)
-
-for epoch in range(int(args.num_train_epochs)):
-
-    train_features = convert_examples_to_features(copy.deepcopy(train_data), corpus.tokenizer_bert, \
-      corpus.max_numVals_of_slot, args.max_seq_length, True, corpus.max_uttr_len)
+    logger.info("Converting examples to features.(Long Time)")
 
     if args.do_train:
-        # random.shuffle(train_examples)
-        tr_loss, tr_accuracy, global_step, \
-         tr_examples = train(train_features, epoch, global_step)
-    else:
-        tr_examples, tr_loss, tr_accuracy, = 0, 999., 0.
+        train_features = convert_examples_to_features(
+            train_data, corpus.tokenizer_bert, corpus.max_numVals_of_slot,
+            args.max_seq_length, True, corpus.max_uttr_len)
 
-    eval_loss, eval_accuracy, eval_examples, total_eval_results = evaluate(
+    dev_features = convert_examples_to_features_infer(
+        dev_data,
+        corpus.tokenizer_bert,
+        corpus.max_numVals_of_slot,
+        args.max_seq_length,
+        True,
+        corpus.max_uttr_len,
+        eval=True)
+
+    test_features = convert_examples_to_features_infer(
+        test_data,
+        corpus.tokenizer_bert,
+        corpus.max_numVals_of_slot,
+        args.max_seq_length,
+        True,
+        corpus.max_uttr_len,
+        eval=True)
+
+    #-------------------------------------------------------------------------------
+    model = Bert_v1(768, 300, n_layer=1, dropout=0.1, device=device)
+
+    if args.history_model_file is not None:
+        model_state_dict = torch.load(args.history_model_file)
+        model.load_state_dict(model_state_dict)
+        print('#Finished loading history model file from %s !' %
+              args.history_model_file)
+
+    model.to(device)
+
+    param_optimizer = list(model.named_parameters())
+
+    # hack to remove pooler, which is not used
+    # thus it produce None grad that break apex
+    param_optimizer = [n for n in param_optimizer if 'pooler' not in n[0]]
+
+    no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
+    optimizer_grouped_parameters = [{
+        'params':
+        [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)],
+        'weight_decay':
+        0.01
+    }, {
+        'params':
+        [p for n, p in param_optimizer if any(nd in n for nd in no_decay)],
+        'weight_decay':
+        0.0
+    }]
+
+    t_total = num_steps(train_features) if args.do_train else num_steps(
         dev_features)
 
-    # test_loss, test_accuracy, test_examples, total_test_results = evaluate(test_features)
+    global_step = 0
 
-    logging.info('\n' + '#' * 40)
-    logging.info('epoch%d, train_examples:%d, train_acc:%.4f' \
-      %(epoch, tr_examples, tr_accuracy))
-    logging.info('epoch%d, dev_examples:%d, dev_acc:%.4f' \
-      %(epoch, eval_examples, eval_accuracy))
-    # logging.info('epoch%d, test_examples:%d, test_acc:%.4f' \
-    # 		%(epoch, test_examples, test_accuracy))
+    if args.local_rank != -1:
+        t_total = t_total // torch.distributed.get_world_size()
+    if args.fp16:
+        try:
+            from apex.fp16_utils import FP16_Optimizer
+            from apex.optimizers import FusedAdam
+        except ImportError:
+            raise ImportError(
+                "Please install apex from https://www.github.com/nvidia/apex to use distributed and fp16 training."
+            )
 
-    logging.info('#' * 40)
+        optimizer = FusedAdam(optimizer_grouped_parameters,
+                              lr=args.learning_rate,
+                              bias_correction=False)
+        # if args.loss_scale == 0:
+        #     optimizer = FP16_Optimizer(optimizer, dynamic_loss_scale=True)
+        # else:
+        #     optimizer = FP16_Optimizer(optimizer,
+        #                                static_loss_scale=args.loss_scale)
+    else:
+        optimizer = BertAdam(optimizer_grouped_parameters,
+                             lr=args.learning_rate,
+                             warmup=args.warmup_proportion,
+                             t_total=t_total)
+    if args.fp16:
+        from apex import amp
+        model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
 
-now = datetime.now()
-strnow = datetime.strftime(now, '%Y-%m-%d_%H_%M_%S_')
-eval_results_path = 'detailed_results/' + strnow + 'total_eval_results.pkl'
-test_results_path = 'detailed_results/' + strnow + 'total_test_results.pkl'
+    if args.local_rank != -1:
+        try:
+            from apex.parallel import DistributedDataParallel as DDP
+        except ImportError:
+            raise ImportError(
+                "Please install apex from https://www.github.com/nvidia/apex to use distributed and fp16 training."
+            )
 
-pkl.dump(total_eval_results, open(eval_results_path, 'wb'))
-# pkl.dump(total_test_results, open(test_results_path, 'wb'))
-print('Save eval results to %s' % eval_results_path)
-# print('Save test results to %s'%test_results_path)
+        model = DDP(model)
+    elif n_gpu > 1:
+        model = torch.nn.DataParallel(model)
 
-if args.do_train:
+    for epoch in range(int(args.num_train_epochs)):
+        if args.do_train:
+            # random.shuffle(train_examples)
+            tr_loss, tr_accuracy, global_step, \
+            tr_examples = train(train_features, epoch, global_step)
+        else:
+            tr_examples, tr_loss, tr_accuracy, = 0, 999., 0.
+
+        eval_loss, eval_accuracy, eval_examples, total_eval_results = evaluate(
+            dev_features)
+
+        test_loss, test_accuracy, test_examples, total_test_results = evaluate(
+            test_features)
+
+        logging.info('\n' + '#' * 40)
+        logging.info('epoch%d, train_examples:%d, train_acc:%.4f' \
+        %(epoch, tr_examples, tr_accuracy))
+        logging.info('epoch%d, dev_examples:%d, dev_acc:%.4f' \
+        %(epoch, eval_examples, eval_accuracy))
+        logging.info('epoch%d, test_examples:%d, test_acc:%.4f' \
+        %(epoch, test_examples, test_accuracy))
+
+        logging.info('#' * 40)
+
     now = datetime.now()
     strnow = datetime.strftime(now, '%Y-%m-%d_%H_%M_%S_')
-    model_to_save = model.module if hasattr(
-        model, 'module') else model  # Only save the model it-self
-    output_model_file = os.path.join(args.output_dir,
-                                     strnow + "pytorch_model.bin")
-    print('Saved model file:%s', output_model_file)
+    eval_results_path = 'detailed_results/' + strnow + 'total_eval_results.pkl'
+    test_results_path = 'detailed_results/' + strnow + 'total_test_results.pkl'
+
+    pkl.dump(total_eval_results, open(eval_results_path, 'wb'))
+    # pkl.dump(total_test_results, open(test_results_path, 'wb'))
+    print('Save eval results to %s' % eval_results_path)
+    # print('Save test results to %s'%test_results_path)
+
     if args.do_train:
-        torch.save(model_to_save.state_dict(), output_model_file)
+        now = datetime.now()
+        strnow = datetime.strftime(now, '%Y-%m-%d_%H_%M_%S_')
+        model_to_save = model.module if hasattr(
+            model, 'module') else model  # Only save the model it-self
+        output_model_file = os.path.join(args.output_dir,
+                                         strnow + "pytorch_model.bin")
+        print('Saved model file:%s', output_model_file)
+        if args.do_train:
+            torch.save(model_to_save.state_dict(), output_model_file)
+
+
+if __name__ == "__main__":
+    main()
