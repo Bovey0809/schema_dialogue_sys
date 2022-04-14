@@ -31,11 +31,11 @@ class Corpus(object):
         self.max_numIntents = 0
 
         self.train_schemas = self.load_shemas(self.data_path +
-                                              'test/schema.json')
+                                              'train/schema.json')
         self.dev_schemas = self.load_shemas(self.data_path +
                                             'test/schema.json')
 
-        self.train_dials = self.load_dialogues(self.data_path + 'test/',
+        self.train_dials = self.load_dialogues(self.data_path + 'train/',
                                                self.train_schemas)
         self.dev_dials = self.load_dialogues(self.data_path + 'test/',
                                              self.dev_schemas)
@@ -1098,8 +1098,10 @@ class Corpus(object):
                 intents_desp[frame_id] = []
                 for intent in _schema['intents']:
                     intents[frame_id].append(intent)
-                    intents_desp[frame_id].append(_schema['intents'][intent]['description_tokenized'] \
-                     + ['#'] + _schema['intents'][intent]['description_tokenized_simple'])
+                    intents_desp[frame_id].append(
+                        _schema['intents'][intent]['description_tokenized'] +
+                        ['#'] + _schema['intents'][intent]
+                        ['description_tokenized_simple'])
                 intents_desp[frame_id].append(['none'])
                 intents[frame_id].append('none')
 
@@ -1139,8 +1141,11 @@ class Corpus(object):
                         # 	last_intent_tag[intents[frame_id].index(last_intent[frame_id])] = 1
                         # last_intent[frame_id] = active_intent
 
-                        _data.append([dialogue_id, frame_id, turn_id, _turn['utterance'], uttr_tokenized,\
-                          intents[frame_id], intents_desp[frame_id], intent_idx, last_intent_tag])
+                        _data.append([
+                            dialogue_id, frame_id, turn_id, _turn['utterance'],
+                            uttr_tokenized, intents[frame_id],
+                            intents_desp[frame_id], intent_idx, last_intent_tag
+                        ])
 
                         turn_id += 1
 

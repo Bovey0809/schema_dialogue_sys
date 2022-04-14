@@ -83,6 +83,7 @@ class Bert_v1(nn.Module):
 
     def __init__(self, ninput, nhidden, n_layer=1, dropout=0, device=None):
         super(Bert_v1, self).__init__()
+        global args
         self.nhidden = nhidden
         self.ninput = ninput
         self.dropout = nn.Dropout(dropout)
@@ -421,7 +422,7 @@ def convert_examples_to_features_infer(examples,
                      special_token_ids) in seq_features:
                     logger.info(f"tokens: {' '.join(tokens)}")
                     logger.info(f"input_ids: {' '.join(map(str, input_ids))}")
-                    # logger.info(f"input_mask: {' '.join(map(str, input_mask))}")
+                    logger.info(f"input_mask: {' '.join(map(str, input_mask))}")
                     logger.info(
                         f"segment_ids: {' '.join(map(str, segment_ids))}")
                 if is_training:
@@ -878,6 +879,8 @@ def num_steps(features):
 
 def main():
     #-----------------------------main-------------------------------------------
+    global args
+    global device
     args = arg_parser()
 
     if args.local_rank == -1 or args.no_cuda:
@@ -920,9 +923,9 @@ def main():
     # tokenizer = BertTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)
 
     #---------------- load data ------------------------
-    corpus = Corpus(args, max_uttr_len=96)
+    # corpus = Corpus(args, max_uttr_len=96)
     # pkl.dump(corpus, open('corpus.pkl', 'wb'))
-    # corpus = pkl.load(open('corpus.pkl', 'rb'))
+    corpus = pkl.load(open('corpus.pkl', 'rb'))
     corpus.max_uttr_len = 96
     train_data, dev_data, test_data = corpus.get_intent_set()
     corpus.check_length(train_data, maxlen=corpus.max_uttr_len)
@@ -957,6 +960,7 @@ def main():
         eval=True)
 
     #-------------------------------------------------------------------------------
+    global model
     model = Bert_v1(768, 300, n_layer=1, dropout=0.1, device=device)
 
     if args.history_model_file is not None:
